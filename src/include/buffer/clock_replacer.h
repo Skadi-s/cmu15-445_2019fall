@@ -40,6 +40,17 @@ class ClockReplacer : public Replacer {
 
  private:
   // TODO(student): implement me!
+  size_t num_pages_;
+  size_t clock_hand_;
+  std::vector<bool> reference_bits_;
+  // `pinned_` here records whether a frame is currently tracked by the replacer
+  // (i.e. is a candidate for replacement). Despite the name, when
+  // `pinned_[i] == true` the frame is in the replacer and thus eligible for
+  // victimization; when `pinned_[i] == false` the frame is not tracked.
+  std::vector<bool> pinned_;
+  // 当前 replacer 中可被替换的元素数量
+  size_t current_size_;
+  std::mutex latch_;
 };
 
 }  // namespace bustub
