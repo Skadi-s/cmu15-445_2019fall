@@ -19,6 +19,7 @@ namespace bustub {
  * @param num_pages the maximum number of pages the ClockReplacer will be required to store
  */
 ClockReplacer::ClockReplacer(size_t num_pages) {
+    LOG_INFO("ClockReplacer created with num_pages: %zu", num_pages);
     num_pages_ = num_pages;
     clock_hand_ = 0;
     reference_bits_ = std::vector<bool>(num_pages, false);
@@ -27,7 +28,7 @@ ClockReplacer::ClockReplacer(size_t num_pages) {
 }
 
 /**
- * Destroys the ClockReplacer.
+ * Destroys the ClockReplacer.  
  */
 ClockReplacer::~ClockReplacer() = default;
 
@@ -37,12 +38,12 @@ auto ClockReplacer::Victim(frame_id_t *frame_id) -> bool {
         return false;
     }
 
-    size_t scanned = 0;
-    while (scanned < num_pages_) {
+    // Keep scanning until we find a victim. Since `current_size_ > 0`, there is
+    // at least one candidate, so this loop will eventually return.
+    while (true) {
         // If this slot is not a candidate, skip it.
         if (!pinned_[clock_hand_]) {
             clock_hand_ = (clock_hand_ + 1) % num_pages_;
-            scanned++;
             continue;
         }
 
@@ -50,7 +51,6 @@ auto ClockReplacer::Victim(frame_id_t *frame_id) -> bool {
         if (reference_bits_[clock_hand_]) {
             reference_bits_[clock_hand_] = false;
             clock_hand_ = (clock_hand_ + 1) % num_pages_;
-            scanned++;
             continue;
         }
 
@@ -60,10 +60,9 @@ auto ClockReplacer::Victim(frame_id_t *frame_id) -> bool {
         reference_bits_[clock_hand_] = false;
         current_size_--;
         clock_hand_ = (clock_hand_ + 1) % num_pages_;
+        LOG_INFO("Victim selected: frame_id %d", *frame_id);
         return true;
     }
-
-    return false;
 }
 
 void ClockReplacer::Pin(frame_id_t frame_id) {
@@ -81,6 +80,7 @@ void ClockReplacer::Pin(frame_id_t frame_id) {
 }
 
 void ClockReplacer::Unpin(frame_id_t frame_id) {
+    LOG_INFO("Unpin called with frame_id: %d", frame_id);
     std::lock_guard<std::mutex> guard(latch_);
     if (frame_id < 0 || static_cast<size_t>(frame_id) >= num_pages_) {
         return;
