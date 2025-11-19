@@ -136,7 +136,7 @@ class BufferPoolManager {
   /**
    * @brief The latch protecting the buffer pool's inner data structures.
    *
-   * TODO(P1) We recommend replacing this comment with details about what this latch actually protects.
+   * This mutex protects access to the buffer pool's core data structures, including the page table, free frame list, and replacer.
    */
   std::shared_ptr<std::mutex> bpm_latch_;
 
