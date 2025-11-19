@@ -85,6 +85,8 @@ class ArcReplacer {
   std::mutex latch_;
 
   // TODO(student): You can add member variables / functions as you like.
+  void ReplaceInternal(std::optional<ArcStatus> ghost_status = std::nullopt);
+  auto EvictInternal(std::optional<ArcStatus> ghost_status = std::nullopt) -> std::optional<frame_id_t>;
 };
 
 }  // namespace bustub
