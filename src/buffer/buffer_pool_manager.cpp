@@ -117,7 +117,70 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
  *
  * @return The page ID of the newly allocated page.
  */
-auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::NewPage() -> page_id_t {
+  std::scoped_lock latch(*bpm_latch_);
+
+  // Allocate a new page and bring it into the buffer pool. If no frame is
+  // available (no free frames and replacer can't evict), return INVALID_PAGE_ID.
+  // Allocate a fresh page id
+  page_id_t new_pid = static_cast<page_id_t>(next_page_id_.fetch_add(1));
+
+  frame_id_t fid = INVALID_FRAME_ID;
+
+  // Use a free frame if available
+  if (!free_frames_.empty()) {
+    fid = free_frames_.front();
+    free_frames_.pop_front();
+  } else {
+    // Try to evict a victim
+    auto victim = replacer_->Evict();
+    if (!victim.has_value()) {
+      // no frame available
+      return INVALID_PAGE_ID;
+    }
+    fid = victim.value();
+
+    // find the page id currently mapped to this frame
+    page_id_t old_pid = INVALID_PAGE_ID;
+    for (auto it = page_table_.begin(); it != page_table_.end(); ++it) {
+      if (it->second == fid) {
+        old_pid = it->first;
+        page_table_.erase(it);
+        break;
+      }
+    }
+
+    // If frame contained a page, write it back if dirty
+    auto &frame = frames_[fid];
+    if (old_pid != INVALID_PAGE_ID && frame->is_dirty_) {
+      // Schedule a write to disk (DiskScheduler::Schedule is responsible for actual IO)
+      std::vector<DiskRequest> reqs;
+      DiskRequest req;
+      req.is_write_ = true;
+      req.data_ = frame->GetDataMut();
+      req.page_id_ = old_pid;
+      reqs.push_back(std::move(req));
+      disk_scheduler_->Schedule(reqs);
+    }
+
+    // reset frame metadata
+    frame->Reset();
+  }
+
+  // Install new page into frame
+  page_table_.emplace(new_pid, fid);
+  auto &frame = frames_[fid];
+  frame->Reset();
+  frame->pin_count_.store(1);
+  frame->is_dirty_ = false;  // newly allocated page not dirty yet
+
+  // Tell replacer about the access (it will insert the alive entry). While pinned,
+  // the frame should be non-evictable.
+  replacer_->RecordAccess(fid, new_pid);
+  replacer_->SetEvictable(fid, false);
+
+  return new_pid;
+}
 
 /**
  * @brief Removes a page from the database, both on disk and in memory.
@@ -138,7 +201,49 @@ auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add im
  * @param page_id The page ID of the page we want to delete.
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
-auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  std::scoped_lock latch(*bpm_latch_);
+
+  // If page is in page_table_, ensure it's not pinned
+  auto it = page_table_.find(page_id);
+  if (it != page_table_.end()) {
+    frame_id_t fid = it->second;
+    auto &frame = frames_[fid];
+    if (frame->pin_count_.load() != 0) {
+      // cannot delete pinned page
+      return false;
+    }
+
+    // Remove mapping and reset frame
+    page_table_.erase(it);
+
+    // If dirty, best effort: schedule a write (optional); then deallocate on disk
+    if (frame->is_dirty_) {
+      std::vector<DiskRequest> reqs;
+      DiskRequest req;
+      req.is_write_ = true;
+      req.data_ = frame->GetDataMut();
+      req.page_id_ = page_id;
+      reqs.push_back(std::move(req));
+      disk_scheduler_->Schedule(reqs);
+    }
+
+    // Reset frame and add back to free list
+    frame->Reset();
+    free_frames_.push_back(fid);
+
+    // Ensure replacer knows this frame is removed
+    replacer_->Remove(fid);
+
+    // Finally deallocate page on disk
+    disk_scheduler_->DeallocatePage(page_id);
+    return true;
+  }
+
+  // Page not present in memory: still deallocate on disk and return true
+  disk_scheduler_->DeallocatePage(page_id);
+  return true;
+}
 
 /**
  * @brief Acquires an optional write-locked guard over a page of data. The user can specify an `AccessType` if needed.
