@@ -122,9 +122,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
 
   // Allocate a new page and bring it into the buffer pool. If no frame is
   // available (no free frames and replacer can't evict), return INVALID_PAGE_ID.
-  // Allocate a fresh page id
-  page_id_t new_pid = static_cast<page_id_t>(next_page_id_.fetch_add(1));
-
+  
   frame_id_t fid = INVALID_FRAME_ID;
 
   // Use a free frame if available
@@ -135,7 +133,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
     // Try to evict a victim
     auto victim = replacer_->Evict();
     if (!victim.has_value()) {
-      // no frame available
+      // no frame available - return early without allocating a page_id
       return INVALID_PAGE_ID;
     }
     fid = victim.value();
@@ -171,6 +169,9 @@ auto BufferPoolManager::NewPage() -> page_id_t {
     // reset frame metadata
     frame->Reset();
   }
+
+  // Now that we have a frame, allocate a fresh page id
+  page_id_t new_pid = static_cast<page_id_t>(next_page_id_.fetch_add(1));
 
   // Install new page into frame
   page_table_.emplace(new_pid, fid);
