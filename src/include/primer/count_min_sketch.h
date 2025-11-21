@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -103,6 +104,9 @@ class CountMinSketch {
   }
 
   /** @todo (student) can add their data structures that support count-min sketch operations */
+  // Use a 2D vector with a global mutex for thread safety
+  std::vector<std::vector<uint32_t>> sketch_matrix_;
+  mutable std::mutex global_mutex_;
 };
 
 }  // namespace bustub
