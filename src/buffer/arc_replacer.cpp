@@ -245,8 +245,10 @@ void ArcReplacer::Remove(frame_id_t frame_id) {
             mfu_.remove(frame_id);
         }
         
+        // Save evictable status before erasing from map
+        bool was_evictable = status->evictable_;
         alive_map_.erase(frame_id);
-        if (status->evictable_) {
+        if (was_evictable) {
             curr_size_--;
         }
   }
