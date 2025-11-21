@@ -161,8 +161,11 @@ void ReadPageGuard::Drop() {
     return;
   }
   frame_->rwlatch_.unlock_shared();
-  frame_->pin_count_.fetch_sub(1);
-  replacer_->SetEvictable(frame_->frame_id_, true);
+  auto old_pin_count = frame_->pin_count_.fetch_sub(1);
+  // Only set evictable if this was the last pin
+  if (old_pin_count == 1) {
+    replacer_->SetEvictable(frame_->frame_id_, true);
+  }
   is_valid_ = false;
 }
 
@@ -326,8 +329,11 @@ void WritePageGuard::Drop() {
     return;
   }
   frame_->rwlatch_.unlock();
-  frame_->pin_count_.fetch_sub(1);
-  replacer_->SetEvictable(frame_->frame_id_, true);
+  auto old_pin_count = frame_->pin_count_.fetch_sub(1);
+  // Only set evictable if this was the last pin
+  if (old_pin_count == 1) {
+    replacer_->SetEvictable(frame_->frame_id_, true);
+  }
   is_valid_ = false;
 }
 
