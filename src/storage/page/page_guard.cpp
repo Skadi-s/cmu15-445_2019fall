@@ -86,7 +86,7 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
  * @param that The other page guard.
  * @return ReadPageGuard& The newly valid `ReadPageGuard`.
  */
-auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & { 
+auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
   if (this != &that) {
     Drop();  // Release current resources if valid
 
@@ -130,7 +130,7 @@ auto ReadPageGuard::IsDirty() const -> bool {
  *
  * TODO(P1): Add implementation.
  */
-void ReadPageGuard::Flush() { 
+void ReadPageGuard::Flush() {
   if (!is_valid_) {
     return;
   }
@@ -299,7 +299,7 @@ auto WritePageGuard::IsDirty() const -> bool {
  *
  * TODO(P1): Add implementation.
  */
-void WritePageGuard::Flush() { 
+void WritePageGuard::Flush() {
   if (!is_valid_) {
     return;
   }
@@ -324,7 +324,7 @@ void WritePageGuard::Flush() {
  *
  * TODO(P1): Add implementation.
  */
-void WritePageGuard::Drop() { 
+void WritePageGuard::Drop() {
   if (!is_valid_) {
     return;
   }

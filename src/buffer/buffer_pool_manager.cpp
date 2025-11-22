@@ -122,7 +122,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
 
   // Allocate a new page and bring it into the buffer pool. If no frame is
   // available (no free frames and replacer can't evict), return INVALID_PAGE_ID.
-  
+
   frame_id_t fid = INVALID_FRAME_ID;
 
   // Use a free frame if available
@@ -340,19 +340,19 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
 
       // If frame contained a page and is dirty, write it back
       auto &fref = frames_[fid];
-        if (old_pid != INVALID_PAGE_ID && fref->is_dirty_) {
-          std::vector<DiskRequest> reqs;
-          DiskRequest req;
-          req.is_write_ = true;
-          req.data_ = fref->GetDataMut();
-          req.page_id_ = old_pid;
-          auto promise = disk_scheduler_->CreatePromise();
-          req.callback_ = std::move(promise);
-          auto future = req.callback_.get_future();
-          reqs.push_back(std::move(req));
-          disk_scheduler_->Schedule(reqs);
-          future.get();
-        }
+      if (old_pid != INVALID_PAGE_ID && fref->is_dirty_) {
+        std::vector<DiskRequest> reqs;
+        DiskRequest req;
+        req.is_write_ = true;
+        req.data_ = fref->GetDataMut();
+        req.page_id_ = old_pid;
+        auto promise = disk_scheduler_->CreatePromise();
+        req.callback_ = std::move(promise);
+        auto future = req.callback_.get_future();
+        reqs.push_back(std::move(req));
+        disk_scheduler_->Schedule(reqs);
+        future.get();
+      }
 
       // Reset frame metadata to blank
       frames_[fid]->Reset();
