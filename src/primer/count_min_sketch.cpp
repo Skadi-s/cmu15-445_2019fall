@@ -12,6 +12,7 @@
 
 #include "primer/count_min_sketch.h"
 
+#include <queue>
 #include <stdexcept>
 #include <string>
 
@@ -126,7 +127,7 @@ auto CountMinSketch<KeyType>::TopK(uint16_t k, const std::vector<KeyType> &candi
   // The heap stores (count, candidate), and we use greater to make it a min-heap
   std::priority_queue<std::pair<uint32_t, KeyType>, 
                       std::vector<std::pair<uint32_t, KeyType>>,
-                      std::greater<std::pair<uint32_t, KeyType>>> min_heap;
+                      std::greater<>> min_heap;
   
   for (const auto &candidate : candidates) {
     uint32_t count = Count(candidate);
