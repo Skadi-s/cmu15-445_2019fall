@@ -12,9 +12,10 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
-#include <mutex>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -104,9 +105,9 @@ class CountMinSketch {
   }
 
   /** @todo (student) can add their data structures that support count-min sketch operations */
-  // Use a 2D vector with a global mutex for thread safety
-  std::vector<std::vector<uint32_t>> sketch_matrix_;
-  mutable std::mutex global_mutex_;
+  // Use a flat array of atomic values for lock-free thread safety
+  // Access pattern: sketch_matrix_[row * width_ + col]
+  std::unique_ptr<std::atomic<uint32_t>[]> sketch_matrix_;
 };
 
 }  // namespace bustub

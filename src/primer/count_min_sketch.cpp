@@ -39,10 +39,10 @@ CountMinSketch<KeyType>::CountMinSketch(uint32_t width, uint32_t depth) : width_
     hash_functions_.push_back(this->HashFunction(i));
   }
 
-  // Allocate sketch matrix
-  sketch_matrix_.resize(depth_);
-  for (size_t i = 0; i < depth_; i++) {
-    sketch_matrix_[i].resize(width_, 0);
+  // Allocate flat atomic array for sketch matrix
+  sketch_matrix_ = std::make_unique<std::atomic<uint32_t>[]>(depth_ * width_);
+  for (size_t i = 0; i < depth_ * width_; i++) {
+    sketch_matrix_[i].store(0, std::memory_order_relaxed);
   }
 }
 
@@ -72,10 +72,9 @@ auto CountMinSketch<KeyType>::operator=(CountMinSketch &&other) noexcept -> Coun
 template <typename KeyType>
 void CountMinSketch<KeyType>::Insert(const KeyType &item) {
   /** @TODO(student) Implement this function! */
-  std::lock_guard<std::mutex> lock(global_mutex_);
   for (size_t i = 0; i < depth_; i++) {
     size_t col = hash_functions_[i](item);
-    sketch_matrix_[i][col]++;
+    sketch_matrix_[i * width_ + col].fetch_add(1, std::memory_order_relaxed);
   }
 }
 
@@ -85,22 +84,18 @@ void CountMinSketch<KeyType>::Merge(const CountMinSketch<KeyType> &other) {
     throw std::invalid_argument("Incompatible CountMinSketch dimensions for merge.");
   }
   /** @TODO(student) Implement this function! */
-  std::lock_guard<std::mutex> lock(global_mutex_);
-  std::lock_guard<std::mutex> other_lock(other.global_mutex_);
-  for (size_t row = 0; row < depth_; row++) {
-    for (size_t col = 0; col < width_; col++) {
-      sketch_matrix_[row][col] += other.sketch_matrix_[row][col];
-    }
+  for (size_t i = 0; i < depth_ * width_; i++) {
+    uint32_t other_val = other.sketch_matrix_[i].load(std::memory_order_relaxed);
+    sketch_matrix_[i].fetch_add(other_val, std::memory_order_relaxed);
   }
 }
 
 template <typename KeyType>
 auto CountMinSketch<KeyType>::Count(const KeyType &item) const -> uint32_t {
-  std::lock_guard<std::mutex> lock(global_mutex_);
   uint32_t min_count = UINT32_MAX;
   for (size_t i = 0; i < depth_; i++) {
     size_t col = hash_functions_[i](item);
-    uint32_t count = sketch_matrix_[i][col];
+    uint32_t count = sketch_matrix_[i * width_ + col].load(std::memory_order_relaxed);
     if (count < min_count) {
       min_count = count;
     }
@@ -111,11 +106,8 @@ auto CountMinSketch<KeyType>::Count(const KeyType &item) const -> uint32_t {
 template <typename KeyType>
 void CountMinSketch<KeyType>::Clear() {
   /** @TODO(student) Implement this function! */
-  std::lock_guard<std::mutex> lock(global_mutex_);
-  for (size_t row = 0; row < depth_; row++) {
-    for (size_t col = 0; col < width_; col++) {
-      sketch_matrix_[row][col] = 0;
-    }
+  for (size_t i = 0; i < depth_ * width_; i++) {
+    sketch_matrix_[i].store(0, std::memory_order_relaxed);
   }
 }
 
@@ -125,10 +117,8 @@ auto CountMinSketch<KeyType>::TopK(uint16_t k, const std::vector<KeyType> &candi
   /** @TODO(student) Implement this function! */
   // Use a min-heap to keep the largest k elements
   // The heap stores (count, candidate), and we use greater to make it a min-heap
-  std::priority_queue<std::pair<uint32_t, KeyType>, 
-                      std::vector<std::pair<uint32_t, KeyType>>,
-                      std::greater<>> min_heap;
-  
+  std::priority_queue<std::pair<uint32_t, KeyType>, std::vector<std::pair<uint32_t, KeyType>>, std::greater<>> min_heap;
+
   for (const auto &candidate : candidates) {
     uint32_t count = Count(candidate);
     min_heap.push({count, candidate});
