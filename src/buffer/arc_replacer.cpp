@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "buffer/arc_replacer.h"
+#include <mutex>
 #include <optional>
 #include "common/config.h"
 
@@ -75,7 +76,82 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> { return std::nullopt; }
  * @param access_type type of access that was received. This parameter is only needed for
  * leaderboard tests.
  */
-void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type) {}
+void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type) {
+    std::lock_guard<std::mutex> guard(latch_);
+    // case 1: hit in mru_ or mfu_
+    auto alive_iter = alive_map_.find(frame_id);
+    if (alive_iter != alive_map_.end()) {
+        auto frame_status = alive_iter->second;
+        if (frame_status->arc_status_ == ArcStatus::MRU) {
+            // move from mru_ to mfu_
+            mru_.remove(frame_id);
+            mfu_.push_front(frame_id);
+            frame_status->arc_status_ = ArcStatus::MFU;
+        } else if (frame_status->arc_status_ == ArcStatus::MFU) {
+            // move to front of mfu_
+            mfu_.remove(frame_id);
+            mfu_.push_front(frame_id);
+        }
+    }
+    // case 2/3 : hit in mru_ghost_ / mfu_ghost_
+    else {
+        auto ghost_iter = ghost_map_.find(page_id);
+        if (ghost_iter != ghost_map_.end()) {
+            // hit in ghost lists
+            auto frame_status = ghost_iter->second;
+            if (frame_status->arc_status_ == ArcStatus::MRU_GHOST) {
+                // increase target size
+                auto delta = (mru_ghost_.size() >= mfu_ghost_.size()) 
+                                    ? 1 : mfu_ghost_.size() / mru_ghost_.size();
+                mru_target_size_ += delta;
+                // move from mru_ghost_ to mfu_
+                mru_ghost_.remove(page_id);
+                ghost_map_.erase(ghost_iter);
+                mfu_.push_front(frame_id);
+                alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MFU);
+            } 
+            // hit in mfu_ghost_
+            else if (frame_status->arc_status_ == ArcStatus::MFU_GHOST) {
+                // decrease target size
+                auto delta = mfu_ghost_.size() >= mru_ghost_.size() 
+                                    ? 1 : mru_ghost_.size() / mfu_ghost_.size();
+                mru_target_size_ -= delta;
+                // move from mfu_ghost_ to mfu_
+                mfu_ghost_.remove(page_id);
+                ghost_map_.erase(ghost_iter);
+                mfu_.push_front(frame_id);
+                alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MFU);
+            }
+        }
+        // case 4: miss all lists
+        else {
+            // case 4a: L1 overflow
+            if (mru_.size() + mfu_.size() == replacer_size_) {
+                // kill last item in MRU Ghost
+                auto last_page_id = mru_ghost_.back();
+                mru_ghost_.pop_back();
+                ghost_map_.erase(last_page_id);
+                // move new page to the front of MRU
+                mru_.push_front(frame_id);
+                alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MRU);
+            }
+            // case 4b: L2 overflow
+            else if (mru_.size() + mfu_.size() + mru_ghost_.size() + mfu_ghost_.size() == 2 * replacer_size_) {
+                // kill last item in MFU Ghost
+                auto last_page_id = mfu_ghost_.back();
+                mfu_ghost_.pop_back();
+                ghost_map_.erase(last_page_id);
+                // move new page to the front of MRU
+                mru_.push_front(frame_id);
+                alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MRU);
+            } else {
+                // move new page to the front of MRU
+                mru_.push_front(frame_id);
+                alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MRU);
+            }
+        }
+    }
+}
 
 /**
  * TODO(P1): Add implementation
