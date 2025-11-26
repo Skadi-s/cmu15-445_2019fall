@@ -45,7 +45,48 @@ ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {}
  *
  * @return frame id of the evicted frame, or std::nullopt if cannot evict
  */
-auto ArcReplacer::Evict() -> std::optional<frame_id_t> { return std::nullopt; }
+auto ArcReplacer::Evict() -> std::optional<frame_id_t> { 
+    std::lock_guard<std::mutex> guard(latch_);
+    // if mru_ size < target size, evict from mfu_
+    if (mru_.size() < mru_target_size_) {
+        auto evicted_frame = EvictInternal(mfu_, ArcStatus::MFU_GHOST, mfu_ghost_);
+        if (evicted_frame.has_value()) {
+            return evicted_frame;
+        } else {
+            return EvictInternal(mru_, ArcStatus::MRU_GHOST, mru_ghost_);
+        }
+    } else {
+        auto evicted_frame = EvictInternal(mru_, ArcStatus::MRU_GHOST, mru_ghost_);
+        if (evicted_frame.has_value()) {
+            return evicted_frame;
+        } else {
+            return EvictInternal(mfu_, ArcStatus::MFU_GHOST, mfu_ghost_);
+        }
+    }
+    return std::nullopt;
+ }
+
+auto ArcReplacer::EvictInternal(std::list<frame_id_t> &from_list, ArcStatus ghost_status,
+                       std::list<page_id_t> &to_ghost_list) -> std::optional<frame_id_t> {
+    for (auto iter = from_list.rbegin(); iter != from_list.rend(); ++iter) {
+        auto frame_id = *iter;
+        auto alive_iter = alive_map_.find(frame_id);
+        if (alive_iter != alive_map_.end()) {
+            auto frame_status = alive_iter->second;
+            if (frame_status->evictable_) {
+                // evict this frame
+                from_list.remove(frame_id);
+                alive_map_.erase(alive_iter);
+                to_ghost_list.push_front(frame_status->page_id_);
+                ghost_map_[frame_status->page_id_] = std::make_shared<FrameStatus>(
+                    frame_status->page_id_, frame_id, false, ghost_status);
+                curr_size_--;
+                return frame_id;
+            }
+        }
+    }
+    return std::nullopt;
+}
 
 /**
  * TODO(P1): Add implementation
