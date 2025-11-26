@@ -109,6 +109,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
                 ghost_map_.erase(ghost_iter);
                 mfu_.push_front(frame_id);
                 alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MFU);
+                curr_size_++;
             } 
             // hit in mfu_ghost_
             else if (frame_status->arc_status_ == ArcStatus::MFU_GHOST) {
@@ -121,6 +122,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
                 ghost_map_.erase(ghost_iter);
                 mfu_.push_front(frame_id);
                 alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MFU);
+                curr_size_++;
             }
         }
         // case 4: miss all lists
@@ -134,6 +136,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
                 // move new page to the front of MRU
                 mru_.push_front(frame_id);
                 alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MRU);
+                curr_size_++;
             }
             // case 4b: L2 overflow
             else if (mru_.size() + mfu_.size() + mru_ghost_.size() + mfu_ghost_.size() == 2 * replacer_size_) {
@@ -144,10 +147,12 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
                 // move new page to the front of MRU
                 mru_.push_front(frame_id);
                 alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MRU);
+                curr_size_++;
             } else {
                 // move new page to the front of MRU
                 mru_.push_front(frame_id);
                 alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, true, ArcStatus::MRU);
+                curr_size_++;
             }
         }
     }
