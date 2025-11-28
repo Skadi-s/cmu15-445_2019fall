@@ -278,6 +278,9 @@ void ArcReplacer::Remove(frame_id_t frame_id) {
  *
  * @return size_t
  */
-auto ArcReplacer::Size() -> size_t { return 0; }
+auto ArcReplacer::Size() -> size_t {
+    std::lock_guard<std::mutex> guard(latch_);
+    return curr_size_;
+}
 
 }  // namespace bustub
