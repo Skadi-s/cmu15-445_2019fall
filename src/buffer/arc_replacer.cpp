@@ -251,7 +251,25 @@ void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
  *
  * @param frame_id id of frame to be removed
  */
-void ArcReplacer::Remove(frame_id_t frame_id) {}
+void ArcReplacer::Remove(frame_id_t frame_id) {
+    std::lock_guard<std::mutex> guard(latch_);
+    auto alive_iter = alive_map_.find(frame_id);
+    if (alive_iter == alive_map_.end()) {
+        return;
+    }
+    auto frame_status = alive_iter->second;
+    if (!frame_status->evictable_) {
+        throw std::runtime_error("Cannot remove a non-evictable frame");
+    }
+    // remove from corresponding list
+    if (frame_status->arc_status_ == ArcStatus::MRU) {
+        mru_.remove(frame_id);
+    } else if (frame_status->arc_status_ == ArcStatus::MFU) {
+        mfu_.remove(frame_id);
+    }
+    alive_map_.erase(alive_iter);
+    curr_size_--;
+}
 
 /**
  * TODO(P1): Add implementation
