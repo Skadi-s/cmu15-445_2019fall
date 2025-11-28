@@ -25,7 +25,10 @@ namespace bustub {
  * @brief a new ArcReplacer, with lists initialized to be empty and target size to 0
  * @param num_frames the maximum number of frames the ArcReplacer will be required to cache
  */
-ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {}
+ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {
+    alive_map_.reserve(num_frames);
+    ghost_map_.reserve(num_frames);
+}
 
 /**
  * TODO(P1): Add implementation
