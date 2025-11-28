@@ -216,7 +216,24 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
  * @param frame_id id of frame whose 'evictable' status will be modified
  * @param set_evictable whether the given frame is evictable or not
  */
-void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {}
+void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
+    std::lock_guard<std::mutex> guard(latch_);
+    auto alive_iter = alive_map_.find(frame_id);
+    if (alive_iter == alive_map_.end()) {
+        throw std::runtime_error("Frame id is invalid");
+    }
+    auto frame_status = alive_iter->second;
+    // no-op if status is already the same
+    if (frame_status->evictable_ == set_evictable) {
+        return;
+    }
+    frame_status->evictable_ = set_evictable;
+    if (set_evictable) {
+        curr_size_++;
+    } else {
+        curr_size_--;
+    }
+}
 
 /**
  * TODO(P1): Add implementation
