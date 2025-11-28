@@ -169,7 +169,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
         // case 4: miss all lists
         else {
             // case 4a: L1 overflow
-            if (mru_.size() + mfu_.size() == replacer_size_) {
+            if (mru_.size() + mru_ghost_.size() == replacer_size_) {
                 // kill last item in MRU Ghost
                 auto last_page_id = mru_ghost_.back();
                 mru_ghost_.pop_back();
