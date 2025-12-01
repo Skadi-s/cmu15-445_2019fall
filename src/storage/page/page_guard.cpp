@@ -11,9 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "storage/page/page_guard.h"
+#include <future>
 #include <memory>
 #include "buffer/arc_replacer.h"
 #include "common/macros.h"
+#include "storage/disk/disk_scheduler.h"
 
 namespace bustub {
 
@@ -129,7 +131,25 @@ auto ReadPageGuard::IsDirty() const -> bool {
  *
  * TODO(P1): Add implementation.
  */
-void ReadPageGuard::Flush() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void ReadPageGuard::Flush() {
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");
+  // delegate to BufferPoolManager's FlushPage
+  std::lock_guard<std::mutex> guard(*bpm_latch_);
+  if (frame_->is_dirty_) {
+    std::promise<bool> prom;
+    auto fut = prom.get_future();
+    DiskRequest request;
+    request.is_write_ = true;
+    request.page_id_ = page_id_;
+    request.data_ = frame_->GetDataMut();
+    request.callback_ = std::move(prom);
+    std::vector<DiskRequest> requests;
+    requests.push_back(std::move(request));
+    disk_scheduler_->Schedule(requests);
+    fut.get();  // wait for completion
+    frame_->is_dirty_ = false;
+  }
+}
 
 /**
  * @brief Manually drops a valid `ReadPageGuard`'s data. If this guard is invalid, this function does nothing.
@@ -271,7 +291,25 @@ auto WritePageGuard::IsDirty() const -> bool {
  *
  * TODO(P1): Add implementation.
  */
-void WritePageGuard::Flush() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void WritePageGuard::Flush() {
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
+  // delegate to BufferPoolManager's FlushPage
+  std::lock_guard<std::mutex> guard(*bpm_latch_);
+  if (frame_->is_dirty_) {
+    std::promise<bool> prom;
+    auto fut = prom.get_future();
+    DiskRequest request;
+    request.is_write_ = true;
+    request.page_id_ = page_id_;
+    request.data_ = frame_->GetDataMut();
+    request.callback_ = std::move(prom);
+    std::vector<DiskRequest> requests;
+    requests.push_back(std::move(request));
+    disk_scheduler_->Schedule(requests);
+    fut.get();  // wait for completion
+    frame_->is_dirty_ = false;
+  }
+}
 
 /**
  * @brief Manually drops a valid `WritePageGuard`'s data. If this guard is invalid, this function does nothing.
