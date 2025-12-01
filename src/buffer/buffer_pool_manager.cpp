@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "buffer/buffer_pool_manager.h"
+#include <mutex>
 #include "buffer/arc_replacer.h"
 #include "common/config.h"
 #include "common/macros.h"
@@ -183,7 +184,81 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("T
  * returns `std::nullopt`; otherwise, returns a `WritePageGuard` ensuring exclusive and mutable access to a page's data.
  */
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
+  // case 1: page is already in memory
+  auto page_table_iter = page_table_.find(page_id);
+  if (page_table_iter != page_table_.end()) {
+    auto frame_id = page_table_iter->second;
+    auto frame = frames_[frame_id];
+    // increase pin count
+    frame->pin_count_.fetch_add(1);
+    // set frame as non-evictable
+    replacer_->SetEvictable(frame_id, false);
+    // record access
+    replacer_->RecordAccess(frame_id, page_id, access_type);
+    // return WritePageGuard
+    return WritePageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+  }
+  // case 2: page is not in memory, need to find a free frame
+  frame_id_t frame_id;;
+  if (!free_frames_.empty()) {
+    frame_id = free_frames_.front();
+    free_frames_.pop_front();
+  } else {
+    // need to evict a frame
+    auto evict_frame_id_opt = replacer_->Evict();
+    if (!evict_frame_id_opt.has_value()) {
+      // cannot evict any frame, return nullopt
+      return std::nullopt;
+    }
+    frame_id = evict_frame_id_opt.value();
+    auto evict_frame = frames_[frame_id];
+    // if dirty, flush to disk
+    if (evict_frame->is_dirty_) {
+      std::promise<bool> prom;
+      auto fut = prom.get_future();
+      DiskRequest request;
+      request.is_write_ = true;
+      request.page_id_ = evict_frame->page_id_.value();
+      request.data_ = evict_frame->GetDataMut();
+      request.callback_ = std::move(prom);
+      std::vector<DiskRequest> requests;
+      requests.push_back(std::move(request));
+      disk_scheduler_->Schedule(requests);
+      fut.get();  // wait for completion
+      evict_frame->is_dirty_ = false;
+    }
+    // remove old page from page table
+    page_table_.erase(evict_frame->page_id_.value());
+    evict_frame->Reset();
+  }
+  // read page from disk into frame
+  {
+    std::promise<bool> prom;
+    auto fut = prom.get_future();
+    DiskRequest request;
+    request.is_write_ = false;
+    request.page_id_ = page_id;
+    request.data_ = frames_[frame_id]->GetDataMut();
+    request.callback_ = std::move(prom);
+    std::vector<DiskRequest> requests;
+    requests.push_back(std::move(request));
+    disk_scheduler_->Schedule(requests);
+    fut.get();  // wait for completion
+  }
+  // update frame metadata
+  auto frame = frames_[frame_id];
+  frame->page_id_ = page_id;
+  frame->is_dirty_ = false;
+  frame->pin_count_.store(1);
+  // set frame as non-evictable
+  replacer_->SetEvictable(frame_id, false);
+  // record access
+  replacer_->RecordAccess(frame_id, page_id, access_type);
+  // update page table
+  page_table_[page_id] = frame_id;
+  // return WritePageGuard
+  return WritePageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
 }
 
 /**
@@ -211,7 +286,72 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  * returns `std::nullopt`; otherwise, returns a `ReadPageGuard` ensuring shared and read-only access to a page's data.
  */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
+  // case 1: page is already in memory
+  auto page_table_iter = page_table_.find(page_id);
+  if (page_table_iter != page_table_.end()) {
+    auto frame_id = page_table_iter->second;
+    auto frame = frames_[frame_id];
+    // increase pin count
+    frame->pin_count_.fetch_add(1);
+    // set frame as non-evictable
+    replacer_->SetEvictable(frame_id, false);
+    // record access
+    replacer_->RecordAccess(frame_id, page_id, access_type);
+    // return ReadPageGuard
+    return ReadPageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+  }
+  // case 2: page is not in memory, need to find a free frame
+  frame_id_t frame_id;;
+  if (!free_frames_.empty()) {
+    frame_id = free_frames_.front();
+    free_frames_.pop_front();
+  } else {
+    // need to evict a frame
+    auto evict_frame_id_opt = replacer_->Evict();
+    if (!evict_frame_id_opt.has_value()) {
+      // cannot evict any frame, return nullopt
+      return std::nullopt;
+    }
+    frame_id = evict_frame_id_opt.value();
+    auto evict_frame = frames_[frame_id];
+    // if dirty, flush to disk
+    if (evict_frame->is_dirty_) {
+      std::promise<bool> prom;
+      auto fut = prom.get_future();
+      DiskRequest request;
+      request.is_write_ = true;
+      request.page_id_ = evict_frame->page_id_.value();
+      request.data_ = evict_frame->GetDataMut();
+      request.callback_ = std::move(prom);
+      std::vector<DiskRequest> requests;
+      requests.push_back(std::move(request));
+      disk_scheduler_->Schedule(requests);
+      fut.get();  // wait for completion
+      evict_frame->is_dirty_ = false;
+    }
+    // remove old page from page table
+    page_table_.erase(evict_frame->page_id_.value());
+    evict_frame->Reset();
+  }
+  // read page from disk into frame
+  {
+    std::promise<bool> prom;
+    auto fut = prom.get_future();
+    DiskRequest request;
+    request.is_write_ = false;
+    request.page_id_ = page_id;
+    request.data_ = frames_[frame_id]->GetDataMut();
+    request.callback_ = std::move(prom);
+    std::vector<DiskRequest> requests;
+    requests.push_back(std::move(request));
+    disk_scheduler_->Schedule(requests);
+    fut.get();  // wait for completion
+  }
+  // update page table
+  page_table_[page_id] = frame_id;
+  // return ReadPageGuard
+  return ReadPageGuard(page_id, frames_[frame_id], replacer_, bpm_latch_, disk_scheduler_);
 }
 
 /**
