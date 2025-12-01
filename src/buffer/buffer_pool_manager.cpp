@@ -192,19 +192,21 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     auto frame = frames_[frame_id];
     // increase pin count
     frame->pin_count_.fetch_add(1);
-    // set frame as non-evictable
-    replacer_->SetEvictable(frame_id, false);
     // record access
     replacer_->RecordAccess(frame_id, page_id, access_type);
+    // set frame as non-evictable
+    replacer_->SetEvictable(frame_id, false);
     // return WritePageGuard
     return WritePageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
   }
   // case 2: page is not in memory, need to find a free frame
-  frame_id_t frame_id;;
+  frame_id_t frame_id;
   if (!free_frames_.empty()) {
     frame_id = free_frames_.front();
     free_frames_.pop_front();
-  } else {
+  } 
+  // case 3: need to evict a frame
+  else {
     // need to evict a frame
     auto evict_frame_id_opt = replacer_->Evict();
     if (!evict_frame_id_opt.has_value()) {
@@ -251,10 +253,10 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
   frame->page_id_ = page_id;
   frame->is_dirty_ = false;
   frame->pin_count_.store(1);
-  // set frame as non-evictable
-  replacer_->SetEvictable(frame_id, false);
   // record access
   replacer_->RecordAccess(frame_id, page_id, access_type);
+  // set frame as non-evictable
+  replacer_->SetEvictable(frame_id, false);
   // update page table
   page_table_[page_id] = frame_id;
   // return WritePageGuard
@@ -294,10 +296,10 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     auto frame = frames_[frame_id];
     // increase pin count
     frame->pin_count_.fetch_add(1);
-    // set frame as non-evictable
-    replacer_->SetEvictable(frame_id, false);
     // record access
     replacer_->RecordAccess(frame_id, page_id, access_type);
+    // set frame as non-evictable
+    replacer_->SetEvictable(frame_id, false);
     // return ReadPageGuard
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
   }
