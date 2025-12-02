@@ -134,8 +134,7 @@ auto ReadPageGuard::IsDirty() const -> bool {
  */
 void ReadPageGuard::Flush() {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");
-  // delegate to BufferPoolManager's FlushPage
-  std::lock_guard<std::mutex> guard(*bpm_latch_);
+  // Perform flush under the page latch only to avoid latch ordering deadlocks
   if (frame_->is_dirty_) {
     std::promise<bool> prom;
     auto fut = prom.get_future();
@@ -313,8 +312,7 @@ auto WritePageGuard::IsDirty() const -> bool {
  */
 void WritePageGuard::Flush() {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
-  // delegate to BufferPoolManager's FlushPage
-  std::lock_guard<std::mutex> guard(*bpm_latch_);
+  // Perform flush under the page latch only to avoid latch ordering deadlocks
   if (frame_->is_dirty_) {
     std::promise<bool> prom;
     auto fut = prom.get_future();

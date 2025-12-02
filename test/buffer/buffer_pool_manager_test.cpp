@@ -12,6 +12,9 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <atomic>
+#include <thread>
+#include <condition_variable>
 
 #include "buffer/buffer_pool_manager.h"
 #include "gtest/gtest.h"
@@ -355,6 +358,111 @@ TEST(BufferPoolManagerTest, DISABLED_DeadlockTest) {
   guard0.Drop();
 
   child.join();
+}
+
+// Additional deadlock tests to ensure no AB-BA lock ordering issues remain.
+
+// Scenario: Thread A holds WritePageGuard on page P and calls Flush().
+// Thread B concurrently calls CheckedWritePage(P). If Flush() takes bpm_latch_
+// while holding page rwlatch_, and CheckedWritePage holds bpm_latch_ then tries
+// to get rwlatch_, this would deadlock. Our implementation should NOT deadlock.
+TEST(BufferPoolManagerTest, Deadlock_FlushVsCheckedWrite_SamePage) {
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
+
+  const auto pid = bpm->NewPage();
+
+  // Hold a write guard so we hold the page's rwlatch_.
+  auto guard = bpm->WritePage(pid);
+  CopyString(guard.GetDataMut(), "x");
+
+  std::atomic<bool> started{false};
+  std::atomic<bool> done{false};
+
+  std::thread t([&] {
+    started.store(true);
+    // This will take bpm_latch_ and then block on page rwlatch_ until guard is dropped.
+    auto g = bpm->CheckedWritePage(pid);
+    ASSERT_TRUE(g.has_value());
+    done.store(true);
+  });
+
+  while (!started.load()) {
+  }
+
+  // Call Flush() while holding the page latch; should not attempt to take bpm_latch_.
+  // This must return quickly and not deadlock with the other thread.
+  guard.Flush();
+
+  // Now release the page so the other thread can proceed.
+  guard.Drop();
+
+  // Wait for the other thread to finish.
+  t.join();
+  ASSERT_TRUE(done.load());
+}
+
+// Scenario: Thread A holds WritePageGuard on page P, Thread B calls CheckedWritePage(P).
+// If Drop() acquires bpm_latch_ before releasing the page rwlatch_, and CheckedWritePage
+// holds bpm_latch_ then tries to get rwlatch_, this forms AB-BA and deadlocks.
+// Our Drop() releases rwlatch_ before taking bpm_latch_, so it should not deadlock.
+TEST(BufferPoolManagerTest, Deadlock_DropVsCheckedWrite_SamePage) {
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
+
+  const auto pid = bpm->NewPage();
+  auto guard = bpm->WritePage(pid);
+  CopyString(guard.GetDataMut(), "y");
+
+  std::atomic<bool> started{false};
+  std::atomic<bool> finished{false};
+
+  std::thread t([&] {
+    started.store(true);
+    auto g = bpm->CheckedWritePage(pid);
+    ASSERT_TRUE(g.has_value());
+    finished.store(true);
+  });
+
+  while (!started.load()) {
+  }
+
+  // Drop must not deadlock with the other thread.
+  guard.Drop();
+
+  t.join();
+  ASSERT_TRUE(finished.load());
+}
+
+// Scenario: FlushAllPages() should not hold bpm_latch_ while acquiring per-page latches.
+// Hold a WritePageGuard on one page, then run FlushAllPages() concurrently. It must complete.
+TEST(BufferPoolManagerTest, Deadlock_FlushAllVsWrite) {
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
+
+  // Create a couple of pages.
+  const auto p0 = bpm->NewPage();
+  const auto p1 = bpm->NewPage();
+
+  // Hold write guard on p0.
+  auto g0 = bpm->WritePage(p0);
+  CopyString(g0.GetDataMut(), "z");
+
+  std::atomic<bool> ok{false};
+  std::thread t([&] {
+    bpm->FlushAllPages();
+    ok.store(true);
+  });
+
+  // While flushing, also touch another page to create more contention.
+  {
+    auto g1 = bpm->WritePage(p1);
+    CopyString(g1.GetDataMut(), "w");
+  }
+
+  g0.Drop();
+  t.join();
+  ASSERT_TRUE(ok.load());
 }
 
 TEST(BufferPoolManagerTest, DISABLED_EvictableTest) {
