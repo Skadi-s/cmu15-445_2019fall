@@ -40,10 +40,10 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
       replacer_(std::move(replacer)),
       bpm_latch_(std::move(bpm_latch)),
       disk_scheduler_(std::move(disk_scheduler)) {
-    // RAII
-    is_valid_ = true;
-    latch_ = std::shared_lock<std::shared_mutex>(frame_->rwlatch_);
-} 
+  // RAII
+  is_valid_ = true;
+  latch_ = std::shared_lock<std::shared_mutex>(frame_->rwlatch_);
+}
 
 /**
  * @brief The move constructor for `ReadPageGuard`.
@@ -88,7 +88,7 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
  * @param that The other page guard.
  * @return ReadPageGuard& The newly valid `ReadPageGuard`.
  */
-auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & { 
+auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
   if (this != &that) {
     Drop();
     page_id_ = that.page_id_;
@@ -171,8 +171,8 @@ void ReadPageGuard::Drop() {
   {
     std::lock_guard<std::mutex> guard(*bpm_latch_);
     // decrease pin count in replacer
-    auto old_pin_count_ = frame_->pin_count_.fetch_sub(1);
-    if (old_pin_count_ == 1) {
+    auto old_pin_count = frame_->pin_count_.fetch_sub(1);
+    if (old_pin_count == 1) {
       replacer_->SetEvictable(frame_->frame_id_, true);
     }
   }
@@ -210,9 +210,9 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
       replacer_(std::move(replacer)),
       bpm_latch_(std::move(bpm_latch)),
       disk_scheduler_(std::move(disk_scheduler)) {
-    // RAII
-    is_valid_ = true;
-    latch_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
+  // RAII
+  is_valid_ = true;
+  latch_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
 }
 
 /**
@@ -258,7 +258,7 @@ WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
  * @param that The other page guard.
  * @return WritePageGuard& The newly valid `WritePageGuard`.
  */
-auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard & { 
+auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard & {
   if (this != &that) {
     Drop();
     page_id_ = that.page_id_;
@@ -350,8 +350,8 @@ void WritePageGuard::Drop() {
   {
     std::lock_guard<std::mutex> guard(*bpm_latch_);
     // decrease pin count in replacer
-    auto old_pin_count_ = frame_->pin_count_.fetch_sub(1);
-    if (old_pin_count_ == 1) {
+    auto old_pin_count = frame_->pin_count_.fetch_sub(1);
+    if (old_pin_count == 1) {
       replacer_->SetEvictable(frame_->frame_id_, true);
     }
   }

@@ -227,7 +227,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
   if (!free_frames_.empty()) {
     frame_id = free_frames_.front();
     free_frames_.pop_front();
-  } 
+  }
   // case 3: need to evict a frame
   else {
     // need to evict a frame
@@ -342,7 +342,8 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
   }
   // case 2: page is not in memory, need to find a free frame
-  frame_id_t frame_id;;
+  frame_id_t frame_id;
+  ;
   if (!free_frames_.empty()) {
     frame_id = free_frames_.front();
     free_frames_.pop_front();
@@ -578,7 +579,7 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
 void BufferPoolManager::FlushAllPagesUnsafe() {
   std::scoped_lock<std::mutex> lock(*bpm_latch_);
   // iterate through all pages in the page table
-  for (const auto& [page_id, frame_id] : page_table_) {
+  for (const auto &[page_id, frame_id] : page_table_) {
     auto frame = frames_[frame_id];
     // if dirty, flush to disk
     if (frame->is_dirty_) {
@@ -615,12 +616,12 @@ void BufferPoolManager::FlushAllPages() {
   {
     std::scoped_lock<std::mutex> lock(*bpm_latch_);
     // collect all frames to flush
-    for (const auto& [page_id, frame_id] : page_table_) {
+    for (const auto &[page_id, frame_id] : page_table_) {
       frames_to_flush.emplace_back(page_id, frames_[frame_id]);
     }
   }
   // flush each frame (after releasing bpm_latch_ to avoid deadlock)
-  for (const auto& [page_id, frame] : frames_to_flush) {
+  for (const auto &[page_id, frame] : frames_to_flush) {
     // acquire write lock on the page
     std::unique_lock<std::shared_mutex> page_lock(frame->rwlatch_);
     // if dirty, flush to disk
