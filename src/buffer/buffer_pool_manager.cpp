@@ -350,6 +350,15 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     disk_scheduler_->Schedule(requests);
     fut.get();  // wait for completion
   }
+  // update frame metadata
+  auto frame = frames_[frame_id];
+  frame->page_id_ = page_id;
+  frame->is_dirty_ = false;
+  frame->pin_count_.store(1);
+  // record access
+  replacer_->RecordAccess(frame_id, page_id, access_type);
+  // set frame as non-evictable
+  replacer_->SetEvictable(frame_id, false);
   // update page table
   page_table_[page_id] = frame_id;
   // return ReadPageGuard
