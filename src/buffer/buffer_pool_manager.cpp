@@ -142,7 +142,28 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * @param page_id The page ID of the page we want to delete.
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
-auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
+  // case 1: page is pinned in buffer pool
+  auto page_table_iter = page_table_.find(page_id);
+  if (page_table_iter != page_table_.end()) {
+    auto frame_id = page_table_iter->second;
+    auto frame = frames_[frame_id];
+    // check pin count
+    if (frame->pin_count_.load() > 0) {
+      return false;
+    }
+    // case 2: page is unpinned in buffer pool
+    // remove from replacer
+    replacer_->Remove(frame_id);
+    page_table_.erase(page_id);
+    free_frames_.push_back(frame_id);
+    frame->Reset();
+  }
+  // case 3: page is not in memory
+  disk_scheduler_->DeallocatePage(page_id);
+  return true;
+}
 
 /**
  * @brief Acquires an optional write-locked guard over a page of data. The user can specify an `AccessType` if needed.
