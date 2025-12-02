@@ -167,6 +167,8 @@ void ReadPageGuard::Drop() {
   if (!is_valid_) {
     return;
   }
+  // release latch first
+  latch_.unlock();
   // set frame as evictable in replacer
   {
     std::lock_guard<std::mutex> guard(*bpm_latch_);
@@ -176,8 +178,6 @@ void ReadPageGuard::Drop() {
       replacer_->SetEvictable(frame_->frame_id_, true);
     }
   }
-  // release latch
-  latch_.unlock();
   // invalidate this guard
   is_valid_ = false;
 }
@@ -346,6 +346,8 @@ void WritePageGuard::Drop() {
   if (!is_valid_) {
     return;
   }
+  // release latch first
+  latch_.unlock();
   // set frame as evictable in replacer
   {
     std::lock_guard<std::mutex> guard(*bpm_latch_);
@@ -355,8 +357,6 @@ void WritePageGuard::Drop() {
       replacer_->SetEvictable(frame_->frame_id_, true);
     }
   }
-  // release latch
-  latch_.unlock();
   // invalidate this guard
   is_valid_ = false;
 }

@@ -205,7 +205,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
  * returns `std::nullopt`; otherwise, returns a `WritePageGuard` ensuring exclusive and mutable access to a page's data.
  */
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  std::unique_lock<std::mutex> lock(*bpm_latch_);
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
   // case 1: page is already in memory
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter != page_table_.end()) {
@@ -217,8 +217,6 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     replacer_->RecordAccess(frame_id, page_id, access_type);
     // set frame as non-evictable
     replacer_->SetEvictable(frame_id, false);
-    // release lock before constructing PageGuard to avoid deadlock
-    lock.unlock();
     // return WritePageGuard
     return WritePageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
   }
@@ -242,8 +240,6 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     if (evict_frame->is_dirty_) {
       auto old_page_id = evict_frame->page_id_.value();
       auto evict_data = evict_frame->GetDataMut();
-      // release lock during I/O to improve concurrency
-      lock.unlock();
       std::promise<bool> prom;
       auto fut = prom.get_future();
       DiskRequest request;
@@ -255,8 +251,6 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       requests.push_back(std::move(request));
       disk_scheduler_->Schedule(requests);
       fut.get();  // wait for completion
-      // reacquire lock
-      lock.lock();
       evict_frame->is_dirty_ = false;
     }
     // remove old page from page table
@@ -266,8 +260,6 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
   // read page from disk into frame
   {
     auto read_data = frames_[frame_id]->GetDataMut();
-    // release lock during I/O to improve concurrency
-    lock.unlock();
     std::promise<bool> prom;
     auto fut = prom.get_future();
     DiskRequest request;
@@ -279,8 +271,6 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     requests.push_back(std::move(request));
     disk_scheduler_->Schedule(requests);
     fut.get();  // wait for completion
-    // reacquire lock
-    lock.lock();
   }
   // update frame metadata
   auto frame = frames_[frame_id];
@@ -293,8 +283,6 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
   replacer_->SetEvictable(frame_id, false);
   // update page table
   page_table_[page_id] = frame_id;
-  // release lock before constructing PageGuard to avoid deadlock
-  lock.unlock();
   // return WritePageGuard
   return WritePageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
 }
@@ -324,7 +312,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  * returns `std::nullopt`; otherwise, returns a `ReadPageGuard` ensuring shared and read-only access to a page's data.
  */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  std::unique_lock<std::mutex> lock(*bpm_latch_);
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
   // case 1: page is already in memory
   auto page_table_iter = page_table_.find(page_id);
   if (page_table_iter != page_table_.end()) {
@@ -336,8 +324,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     replacer_->RecordAccess(frame_id, page_id, access_type);
     // set frame as non-evictable
     replacer_->SetEvictable(frame_id, false);
-    // release lock before constructing PageGuard to avoid deadlock
-    lock.unlock();
     // return ReadPageGuard
     return ReadPageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
   }
@@ -360,8 +346,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     if (evict_frame->is_dirty_) {
       auto old_page_id = evict_frame->page_id_.value();
       auto evict_data = evict_frame->GetDataMut();
-      // release lock during I/O to improve concurrency
-      lock.unlock();
       std::promise<bool> prom;
       auto fut = prom.get_future();
       DiskRequest request;
@@ -373,8 +357,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
       requests.push_back(std::move(request));
       disk_scheduler_->Schedule(requests);
       fut.get();  // wait for completion
-      // reacquire lock
-      lock.lock();
       evict_frame->is_dirty_ = false;
     }
     // remove old page from page table
@@ -384,8 +366,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
   // read page from disk into frame
   {
     auto read_data = frames_[frame_id]->GetDataMut();
-    // release lock during I/O to improve concurrency
-    lock.unlock();
     std::promise<bool> prom;
     auto fut = prom.get_future();
     DiskRequest request;
@@ -397,8 +377,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     requests.push_back(std::move(request));
     disk_scheduler_->Schedule(requests);
     fut.get();  // wait for completion
-    // reacquire lock
-    lock.lock();
   }
   // update frame metadata
   auto frame = frames_[frame_id];
@@ -411,8 +389,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
   replacer_->SetEvictable(frame_id, false);
   // update page table
   page_table_[page_id] = frame_id;
-  // release lock before constructing PageGuard to avoid deadlock
-  lock.unlock();
   // return ReadPageGuard
   return ReadPageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
 }
