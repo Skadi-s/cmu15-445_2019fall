@@ -10,11 +10,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdio>
 #include <filesystem>
-#include <atomic>
 #include <thread>
-#include <condition_variable>
 
 #include "buffer/buffer_pool_manager.h"
 #include "gtest/gtest.h"
@@ -320,7 +320,7 @@ TEST(BufferPoolManagerTest, DISABLED_ContentionTest) {
   thread1.join();
 }
 
-TEST(BufferPoolManagerTest, DISABLED_DeadlockTest) {
+TEST(BufferPoolManagerTest, DeadlockTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
