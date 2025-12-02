@@ -41,8 +41,9 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
       bpm_latch_(std::move(bpm_latch)),
       disk_scheduler_(std::move(disk_scheduler)) {
     // RAII
+    is_valid_ = true;
     latch_ = std::shared_lock<std::shared_mutex>(frame_->rwlatch_);
-}
+} 
 
 /**
  * @brief The move constructor for `ReadPageGuard`.
@@ -162,7 +163,24 @@ void ReadPageGuard::Flush() {
  *
  * TODO(P1): Add implementation.
  */
-void ReadPageGuard::Drop() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void ReadPageGuard::Drop() {
+  if (!is_valid_) {
+    return;
+  }
+  // set frame as evictable in replacer
+  {
+    std::lock_guard<std::mutex> guard(*bpm_latch_);
+    // decrease pin count in replacer
+    auto old_pin_count_ = frame_->pin_count_.fetch_sub(1);
+    if (old_pin_count_ == 1) {
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
+  }
+  // release latch
+  latch_.unlock();
+  // invalidate this guard
+  is_valid_ = false;
+}
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
 ReadPageGuard::~ReadPageGuard() { Drop(); }
@@ -193,6 +211,7 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
       bpm_latch_(std::move(bpm_latch)),
       disk_scheduler_(std::move(disk_scheduler)) {
     // RAII
+    is_valid_ = true;
     latch_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
 }
 
@@ -275,6 +294,7 @@ auto WritePageGuard::GetData() const -> const char * {
  */
 auto WritePageGuard::GetDataMut() -> char * {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
+  frame_->is_dirty_ = true;
   return frame_->GetDataMut();
 }
 
@@ -322,7 +342,24 @@ void WritePageGuard::Flush() {
  *
  * TODO(P1): Add implementation.
  */
-void WritePageGuard::Drop() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void WritePageGuard::Drop() {
+  if (!is_valid_) {
+    return;
+  }
+  // set frame as evictable in replacer
+  {
+    std::lock_guard<std::mutex> guard(*bpm_latch_);
+    // decrease pin count in replacer
+    auto old_pin_count_ = frame_->pin_count_.fetch_sub(1);
+    if (old_pin_count_ == 1) {
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
+  }
+  // release latch
+  latch_.unlock();
+  // invalidate this guard
+  is_valid_ = false;
+}
 
 /** @brief The destructor for `WritePageGuard`. This destructor simply calls `Drop()`. */
 WritePageGuard::~WritePageGuard() { Drop(); }
