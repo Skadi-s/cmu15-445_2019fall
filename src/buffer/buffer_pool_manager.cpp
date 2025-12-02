@@ -485,7 +485,32 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * @param page_id The page ID of the page to be flushed.
  * @return `false` if the page could not be found in the page table; otherwise, `true`.
  */
-auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
+  // check if page is in memory
+  auto page_table_iter = page_table_.find(page_id);
+  if (page_table_iter == page_table_.end()) {
+    return false;
+  }
+  auto frame_id = page_table_iter->second;
+  auto frame = frames_[frame_id];
+  // if dirty, flush to disk
+  if (frame->is_dirty_) {
+    std::promise<bool> prom;
+    auto fut = prom.get_future();
+    DiskRequest request;
+    request.is_write_ = true;
+    request.page_id_ = page_id;
+    request.data_ = frame->GetDataMut();
+    request.callback_ = std::move(prom);
+    std::vector<DiskRequest> requests;
+    requests.push_back(std::move(request));
+    disk_scheduler_->Schedule(requests);
+    fut.get();  // wait for completion
+    frame->is_dirty_ = false;
+  }
+  return true;
+}
 
 /**
  * @brief Flushes a page's data out to disk safely.
@@ -505,7 +530,37 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool { UNIMPLEMENT
  * @param page_id The page ID of the page to be flushed.
  * @return `false` if the page could not be found in the page table; otherwise, `true`.
  */
-auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
+  std::shared_ptr<FrameHeader> frame;
+  {
+    std::scoped_lock<std::mutex> lock(*bpm_latch_);
+    // check if page is in memory
+    auto page_table_iter = page_table_.find(page_id);
+    if (page_table_iter == page_table_.end()) {
+      return false;
+    }
+    auto frame_id = page_table_iter->second;
+    frame = frames_[frame_id];
+  }
+  // acquire write lock on the page (after releasing bpm_latch_ to avoid deadlock)
+  std::unique_lock<std::shared_mutex> page_lock(frame->rwlatch_);
+  // if dirty, flush to disk
+  if (frame->is_dirty_) {
+    std::promise<bool> prom;
+    auto fut = prom.get_future();
+    DiskRequest request;
+    request.is_write_ = true;
+    request.page_id_ = page_id;
+    request.data_ = frame->GetDataMut();
+    request.callback_ = std::move(prom);
+    std::vector<DiskRequest> requests;
+    requests.push_back(std::move(request));
+    disk_scheduler_->Schedule(requests);
+    fut.get();  // wait for completion
+    frame->is_dirty_ = false;
+  }
+  return true;
+}
 
 /**
  * @brief Flushes all page data that is in memory to disk unsafely.
@@ -520,7 +575,28 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TO
  *
  * TODO(P1): Add implementation
  */
-void BufferPoolManager::FlushAllPagesUnsafe() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void BufferPoolManager::FlushAllPagesUnsafe() {
+  std::scoped_lock<std::mutex> lock(*bpm_latch_);
+  // iterate through all pages in the page table
+  for (const auto& [page_id, frame_id] : page_table_) {
+    auto frame = frames_[frame_id];
+    // if dirty, flush to disk
+    if (frame->is_dirty_) {
+      std::promise<bool> prom;
+      auto fut = prom.get_future();
+      DiskRequest request;
+      request.is_write_ = true;
+      request.page_id_ = page_id;
+      request.data_ = frame->GetDataMut();
+      request.callback_ = std::move(prom);
+      std::vector<DiskRequest> requests;
+      requests.push_back(std::move(request));
+      disk_scheduler_->Schedule(requests);
+      fut.get();  // wait for completion
+      frame->is_dirty_ = false;
+    }
+  }
+}
 
 /**
  * @brief Flushes all page data that is in memory to disk safely.
@@ -534,7 +610,36 @@ void BufferPoolManager::FlushAllPagesUnsafe() { UNIMPLEMENTED("TODO(P1): Add imp
  *
  * TODO(P1): Add implementation
  */
-void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void BufferPoolManager::FlushAllPages() {
+  std::vector<std::pair<page_id_t, std::shared_ptr<FrameHeader>>> frames_to_flush;
+  {
+    std::scoped_lock<std::mutex> lock(*bpm_latch_);
+    // collect all frames to flush
+    for (const auto& [page_id, frame_id] : page_table_) {
+      frames_to_flush.emplace_back(page_id, frames_[frame_id]);
+    }
+  }
+  // flush each frame (after releasing bpm_latch_ to avoid deadlock)
+  for (const auto& [page_id, frame] : frames_to_flush) {
+    // acquire write lock on the page
+    std::unique_lock<std::shared_mutex> page_lock(frame->rwlatch_);
+    // if dirty, flush to disk
+    if (frame->is_dirty_) {
+      std::promise<bool> prom;
+      auto fut = prom.get_future();
+      DiskRequest request;
+      request.is_write_ = true;
+      request.page_id_ = page_id;
+      request.data_ = frame->GetDataMut();
+      request.callback_ = std::move(prom);
+      std::vector<DiskRequest> requests;
+      requests.push_back(std::move(request));
+      disk_scheduler_->Schedule(requests);
+      fut.get();  // wait for completion
+      frame->is_dirty_ = false;
+    }
+  }
+}
 
 /**
  * @brief Retrieves the pin count of a page. If the page does not exist in memory, return `std::nullopt`.
