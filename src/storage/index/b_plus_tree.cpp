@@ -35,7 +35,11 @@ BPLUSTREE_TYPE::BPlusTree(std::string name, page_id_t header_page_id, BufferPool
  * @return Returns true if this B+ tree has no keys and values.
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::IsEmpty() const -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
+  WritePageGuard guard = bpm_->WritePage(header_page_id_);
+  auto header_page = guard.AsMut<BPlusTreeHeaderPage>();
+  return header_page->root_page_id_ == INVALID_PAGE_ID;
+}
 
 /*****************************************************************************
  * SEARCH
