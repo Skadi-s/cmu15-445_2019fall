@@ -32,7 +32,12 @@ namespace bustub {
  * @param max_size Max size of the leaf node
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
+  SetMaxSize(max_size);
+  SetPageType(IndexPageType::LEAF_PAGE);
+  SetSize(0);
+  SetNextPageId(INVALID_PAGE_ID);
+}
 
 /**
  * @brief Helper function for fetching tombstones of a page.
@@ -40,18 +45,25 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) { UNIMPLEMENTED("TODO(P2): A
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetTombstones() const -> std::vector<KeyType> {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  std::vector<KeyType> tombs;
+  for (size_t i = 0; i < num_tombstones_; i++) {
+    size_t tomb_index = tombstones_[i];
+    tombs.push_back(key_array_[tomb_index]);
+  }
+  return tombs;
 }
 
 /**
  * Helper methods to set/get next page id
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t { 
+  return next_page_id_; 
+}
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  next_page_id_ = next_page_id;
 }
 
 /*
@@ -59,7 +71,10 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
  * array offset)
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
+  BUSTUB_ENSURE(index >= 0 && index < GetSize(), "Index out of bounds");
+  return key_array_[index];
+}
 
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;
 
