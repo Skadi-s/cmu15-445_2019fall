@@ -13,6 +13,7 @@
 #include "storage/index/b_plus_tree.h"
 #include "buffer/traced_buffer_pool_manager.h"
 #include "storage/index/b_plus_tree_debug.h"
+#include "storage/page/b_plus_tree_page.h"
 
 namespace bustub {
 
@@ -55,9 +56,66 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
   // Declaration of context instance. Using the Context is not necessary but advised.
   Context ctx;
+  // Get header page to find root page id
+  ReadPageGuard header_guard = bpm_->ReadPage(header_page_id_);
+  auto header_page = header_guard.As<BPlusTreeHeaderPage>();
+  page_id_t root_page_id = header_page->root_page_id_;
+  header_guard.Drop();
+  
+  if (root_page_id == INVALID_PAGE_ID) {
+    return false;
+  }
+  
+  // Find the leaf page that may contain the key
+  ReadPageGuard leaf_guard = bpm_->ReadPage(root_page_id);
+  auto page = leaf_guard.As<BPlusTreePage>();
+  
+  // Navigate to the leaf page
+  while (!page->IsLeafPage()) {
+    auto internal_page = leaf_guard.As<InternalPage>();
+    page_id_t child_page_id = INVALID_PAGE_ID;
+    
+    // Find the appropriate child page
+    // The first key (index 0) is invalid, so we start from index 1
+    int size = internal_page->GetSize();
+    int index = 0;
+    
+    // Linear search to find the right child
+    // KEY(i) <= K < KEY(i+1)
+    // If key < KEY(1), go to child 0
+    // If KEY(i) <= key < KEY(i+1), go to child i
+    // If key >= KEY(n-1), go to child n-1
+    for (int i = 1; i < size; i++) {
+      if (comparator_(key, internal_page->KeyAt(i)) < 0) {
+        index = i - 1;
+        break;
+      }
+      index = i;
+    }
+    
+    child_page_id = internal_page->ValueAt(index);
+    leaf_guard.Drop();
+    leaf_guard = bpm_->ReadPage(child_page_id);
+    page = leaf_guard.As<BPlusTreePage>();
+  }
+  
+  // Now we have a leaf page, search for the key
+  auto leaf_page = leaf_guard.As<LeafPage>();
+  int size = leaf_page->GetSize();
+  
+  // Binary search or linear search for the key
+  for (int i = 0; i < size; i++) {
+    if (comparator_(leaf_page->KeyAt(i), key) == 0) {
+      // Found the key
+      result->push_back(leaf_page->ValueAt(i));
+      return true;
+    }
+  }
+  
+  // Key not found
+  return false;
 }
 
 /*****************************************************************************

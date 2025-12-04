@@ -76,6 +76,16 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
   return key_array_[index];
 }
 
+/*
+ * Helper method to find and return the value associated with input "index" (a.k.a
+ * array offset)
+ */
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType {
+  BUSTUB_ENSURE(index >= 0 && index < GetSize(), "Index out of bounds");
+  return rid_array_[index];
+}
+
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;
 
 template class BPlusTreeLeafPage<GenericKey<8>, RID, GenericComparator<8>>;
